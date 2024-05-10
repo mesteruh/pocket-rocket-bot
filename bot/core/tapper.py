@@ -240,9 +240,8 @@ class Tapper:
                     await asyncio.sleep(delay=3)
 
                 else:
-                    if time() - refresh_token_time > 275:
+                    if time() - refresh_token_time > 250:
                         await self.refresh_token(http_client=http_client, token=refresh_token)
-                        continue
 
                     sleep_between_clicks = randint(a=settings.SLEEP_BETWEEN_TAP[0], b=settings.SLEEP_BETWEEN_TAP[1])
                     data = await self.update_current_energy(http_client=http_client)
