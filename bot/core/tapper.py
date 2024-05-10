@@ -71,7 +71,7 @@ class Tapper:
             logger.error(f"{self.session_name} | Unknown error during Authorization: {error}")
             await asyncio.sleep(delay=3)
 
-    async def login(self, http_client: aiohttp.ClientSession, tg_web_data: str) -> tuple[str, str, str]:
+    async def login(self, http_client: aiohttp.ClientSession, tg_web_data: str) -> tuple[str, str]:
         try:
             response = await http_client.post(url='https://api-game.whitechain.io/api/login',
                                               json={"init_data": tg_web_data})
@@ -87,9 +87,22 @@ class Tapper:
             http_client.headers["Authorization"] = f"Bearer {token}"
             headers["Authorization"] = f"Bearer {token}"
 
-            return token, refresh_token, refresh_token_expires_at
+            return refresh_token, refresh_token_expires_at
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error while getting Access Token: {error}")
+            await asyncio.sleep(delay=3)
+
+    async def get_user(self, http_client: aiohttp.ClientSession):
+        try:
+            response = await http_client.get(
+                url='https://api-game.whitechain.io/api/user')
+            response.raise_for_status()
+            response_json = await response.json()
+
+            return response_json['user']
+
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error while getting user info: {error}")
             await asyncio.sleep(delay=3)
 
     async def send_taps(self, http_client: aiohttp.ClientSession, points: int):
@@ -137,9 +150,20 @@ class Tapper:
             logger.error(f"{self.session_name} | Unknown error while recovery energy: {error}")
             await asyncio.sleep(delay=3)
 
-    async def get_boosts_status(self, http_client: aiohttp.ClientSession):
+    async def refresh_token(self, http_client: aiohttp.ClientSession, token: str):
         try:
             response = await http_client.post(
+                url='https://api-game.whitechain.io/api/refresh-token', json={'refresh_token': token})
+            response.raise_for_status()
+
+            logger.success(f"{self.session_name} | Token successful refreshed")
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error while refreshing token: {error}")
+            await asyncio.sleep(delay=3)
+
+    async def get_boosts_status(self, http_client: aiohttp.ClientSession):
+        try:
+            response = await http_client.get(
                 url='https://api-game.whitechain.io/api/user-boosts-status')
             response.raise_for_status()
 
@@ -186,7 +210,9 @@ class Tapper:
             logger.error(f"{self.session_name} | Proxy: {proxy} | Error: {error}")
 
     async def run(self, proxy: str | None) -> None:
+        refresh_token = ''
         token_expired_time = 0
+        refresh_token_time = 0
         proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
 
         async with aiohttp.ClientSession(headers=headers, connector=proxy_conn) as http_client:
@@ -197,9 +223,11 @@ class Tapper:
                 try:
                     if time() >= token_expired_time - 300:
                         tg_web_data = await self.get_tg_web_data(proxy=proxy)
-                        token, refresh_token, refresh_token_expires_at = await self.login(http_client=http_client,
-                                                                                          tg_web_data=tg_web_data)
+                        token, refresh_token_expires_at = await self.login(http_client=http_client,
+                                                                           tg_web_data=tg_web_data)
+                        refresh_token = token
                         token_expired_time = refresh_token_expires_at
+                        refresh_token_time = time()
 
                 except InvalidSession as error:
                     raise error
@@ -209,9 +237,12 @@ class Tapper:
                     await asyncio.sleep(delay=3)
 
                 else:
+                    if time() - refresh_token_time > 275:
+                        await self.refresh_token(http_client=http_client, token=refresh_token)
+
                     sleep_between_clicks = randint(a=settings.SLEEP_BETWEEN_TAP[0], b=settings.SLEEP_BETWEEN_TAP[1])
-                    user = await self.update_current_energy(http_client=http_client)
-                    current_energy = user['current_energy']
+                    data = await self.update_current_energy(http_client=http_client)
+                    current_energy = data['current_energy']
 
                     if current_energy > settings.MIN_AVAILABLE_ENERGY:
                         min, max = settings.RANDOM_TAPS_COUNT
@@ -219,6 +250,8 @@ class Tapper:
 
                         points = randint(a=min, b=max_value)
                         await self.send_taps(http_client=http_client, points=points)
+                        resp = await self.update_current_energy(http_client=http_client)
+                        logger.info(f"{self.session_name} | Balance {resp['current_points']}")
 
                     # has_turbo_boost, has_energy_boost = await self.get_boosts_status(http_client=http_client)
                     # if has_turbo_boost:
@@ -235,7 +268,6 @@ class Tapper:
                         logger.info(f"{self.session_name} | Sleep {settings.SLEEP_BY_MIN_ENERGY}s")
 
                         await asyncio.sleep(delay=settings.SLEEP_BY_MIN_ENERGY)
-
                         continue
 
                     logger.info(f"Sleep {sleep_between_clicks}s")
