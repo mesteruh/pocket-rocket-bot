@@ -218,16 +218,19 @@ class Tapper:
         async with aiohttp.ClientSession(headers=headers, connector=proxy_conn) as http_client:
             if proxy:
                 await self.check_proxy(http_client=http_client, proxy=proxy)
+                await asyncio.sleep(delay=1)
 
             while True:
                 try:
                     if time() >= token_expired_time - 300:
                         tg_web_data = await self.get_tg_web_data(proxy=proxy)
+                        await asyncio.sleep(delay=1)
                         token, refresh_token_expires_at = await self.login(http_client=http_client,
                                                                            tg_web_data=tg_web_data)
                         refresh_token = token
                         token_expired_time = refresh_token_expires_at
                         refresh_token_time = time()
+                        await asyncio.sleep(delay=1)
 
                 except InvalidSession as error:
                     raise error
@@ -239,6 +242,7 @@ class Tapper:
                 else:
                     if time() - refresh_token_time > 275:
                         await self.refresh_token(http_client=http_client, token=refresh_token)
+                        continue
 
                     sleep_between_clicks = randint(a=settings.SLEEP_BETWEEN_TAP[0], b=settings.SLEEP_BETWEEN_TAP[1])
                     data = await self.update_current_energy(http_client=http_client)
@@ -250,7 +254,9 @@ class Tapper:
 
                         points = randint(a=min, b=max_value)
                         await self.send_taps(http_client=http_client, points=points)
+                        await asyncio.sleep(delay=2)
                         resp = await self.update_current_energy(http_client=http_client)
+                        await asyncio.sleep(delay=1)
                         logger.info(f"{self.session_name} | Balance {resp['current_points']}")
 
                     # has_turbo_boost, has_energy_boost = await self.get_boosts_status(http_client=http_client)
