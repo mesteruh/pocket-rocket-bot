@@ -216,8 +216,6 @@ class Tapper:
         refresh_token_time = 0
         revalidate_turbo_time = 0
         revalidate_energy_boost_time = 0
-        print(f"revalidate_turbo_time {revalidate_turbo_time}")
-        print(f"revalidate_energy_boost_time {revalidate_energy_boost_time}")
         proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
 
         async with aiohttp.ClientSession(headers=headers, connector=proxy_conn) as http_client:
@@ -267,12 +265,12 @@ class Tapper:
 
                     if int(time()) > revalidate_turbo_time or int(time()) > revalidate_energy_boost_time:
                         has_turbo_boost, has_energy_boost = await self.get_boosts_status(http_client=http_client)
-                        print(f"has_turbo_boost {has_turbo_boost}")
                         try:
                             if has_turbo_boost:
                                 await self.apply_turbo(http_client=http_client)
                                 await self.update_current_energy(http_client=http_client)
                                 await asyncio.sleep(delay=1)
+                                continue
 
                             if has_energy_boost:
                                 await self.recovery_energy(http_client=http_client)
@@ -286,7 +284,6 @@ class Tapper:
                                 revalidate_turbo_time = int(time() + 21600)
                             if not has_energy_boost:
                                 revalidate_energy_boost_time = int(time() + 21600)
-                            continue
 
                     if current_energy < settings.MIN_AVAILABLE_ENERGY:
                         logger.info(f"{self.session_name} | Minimum energy reached: {current_energy}")
