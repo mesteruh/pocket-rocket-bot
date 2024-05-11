@@ -155,8 +155,11 @@ class Tapper:
             response = await http_client.post(
                 url='https://api-game.whitechain.io/api/refresh-token', json={'refresh_token': token})
             response.raise_for_status()
+            response_json = await response.json()
+            token = response_json['token']
 
-            logger.success(f"{self.session_name} | Token successful refreshed")
+            http_client.headers["Authorization"] = f"Bearer {token}"
+            headers["Authorization"] = f"Bearer {token}"
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error while refreshing token: {error}")
             await asyncio.sleep(delay=3)
@@ -194,8 +197,6 @@ class Tapper:
                 url='https://api-game.whitechain.io/api/update-current-energy')
             response.raise_for_status()
             response_json = await response.json()
-
-            logger.success(f"{self.session_name} | Successful update current energy")
             return response_json['user']
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error while update current energy: {error}")
@@ -213,6 +214,10 @@ class Tapper:
         refresh_token = ''
         token_expired_time = 0
         refresh_token_time = 0
+        revalidate_turbo_time = 0
+        revalidate_energy_boost_time = 0
+        print(f"revalidate_turbo_time {revalidate_turbo_time}")
+        print(f"revalidate_energy_boost_time {revalidate_energy_boost_time}")
         proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
 
         async with aiohttp.ClientSession(headers=headers, connector=proxy_conn) as http_client:
@@ -230,6 +235,8 @@ class Tapper:
                         refresh_token = token
                         token_expired_time = refresh_token_expires_at
                         refresh_token_time = time()
+                        await asyncio.sleep(delay=1)
+                        await self.refresh_token(http_client=http_client, token=refresh_token)
                         await asyncio.sleep(delay=1)
 
                 except InvalidSession as error:
@@ -258,15 +265,28 @@ class Tapper:
                         await asyncio.sleep(delay=1)
                         logger.info(f"{self.session_name} | Balance {resp['current_points']}")
 
-                    # has_turbo_boost, has_energy_boost = await self.get_boosts_status(http_client=http_client)
-                    # if has_turbo_boost:
-                    #     await self.apply_turbo(http_client=http_client)
-                    #     await self.update_current_energy(http_client=http_client)
-                    #
-                    # if has_energy_boost:
-                    #     await self.recovery_energy(http_client=http_client)
-                    #     await self.update_current_energy(http_client=http_client)
-                    #     await asyncio.sleep(delay=1)
+                    if int(time()) > revalidate_turbo_time or int(time()) > revalidate_energy_boost_time:
+                        has_turbo_boost, has_energy_boost = await self.get_boosts_status(http_client=http_client)
+                        print(f"has_turbo_boost {has_turbo_boost}")
+                        try:
+                            if has_turbo_boost:
+                                await self.apply_turbo(http_client=http_client)
+                                await self.update_current_energy(http_client=http_client)
+                                await asyncio.sleep(delay=1)
+
+                            if has_energy_boost:
+                                await self.recovery_energy(http_client=http_client)
+                                await self.update_current_energy(http_client=http_client)
+                                await asyncio.sleep(delay=1)
+
+                        except Exception as error:
+                            logger.error(f"{self.session_name} | Error while applying turbo boost: {error}")
+                        finally:
+                            if not has_turbo_boost:
+                                revalidate_turbo_time = int(time() + 21600)
+                            if not has_energy_boost:
+                                revalidate_energy_boost_time = int(time() + 21600)
+                            continue
 
                     if current_energy < settings.MIN_AVAILABLE_ENERGY:
                         logger.info(f"{self.session_name} | Minimum energy reached: {current_energy}")
