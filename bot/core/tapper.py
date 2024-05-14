@@ -245,27 +245,29 @@ class Tapper:
                     await asyncio.sleep(delay=3)
 
                 else:
-                    if time() - refresh_token_time > 250:
-                        await self.refresh_token(http_client=http_client, token=refresh_token)
+                    try:
+                        if time() - refresh_token_time > 250:
+                            await self.refresh_token(http_client=http_client, token=refresh_token)
 
-                    sleep_between_clicks = randint(a=settings.SLEEP_BETWEEN_TAP[0], b=settings.SLEEP_BETWEEN_TAP[1])
-                    data = await self.update_current_energy(http_client=http_client)
-                    current_energy = data['current_energy']
+                        sleep_between_clicks = randint(a=settings.SLEEP_BETWEEN_TAP[0], b=settings.SLEEP_BETWEEN_TAP[1])
+                        data = await self.update_current_energy(http_client=http_client)
+                        current_energy = data['current_energy']
 
-                    if current_energy > settings.MIN_AVAILABLE_ENERGY:
-                        min, max = settings.RANDOM_TAPS_COUNT
-                        max_value = max if current_energy >= max else current_energy
-
-                        points = randint(a=min, b=max_value)
-                        await self.send_taps(http_client=http_client, points=points)
-                        await asyncio.sleep(delay=2)
-                        resp = await self.update_current_energy(http_client=http_client)
-                        await asyncio.sleep(delay=1)
-                        logger.info(f"{self.session_name} | Balance {resp['current_points']}")
+                        if current_energy > settings.MIN_AVAILABLE_ENERGY:
+                            min_value, max_value = settings.RANDOM_TAPS_COUNT
+                            points = randint(a=min_value, b=max_value)
+                            await self.send_taps(http_client=http_client, points=points)
+                            await asyncio.sleep(delay=2)
+                            resp = await self.update_current_energy(http_client=http_client)
+                            await asyncio.sleep(delay=1)
+                            logger.info(f"{self.session_name} | Balance {resp['current_points']}")
+                    except Exception as error:
+                        logger.error(f"{self.session_name} | Unknown error {error}")
+                        continue
 
                     if int(time()) > revalidate_turbo_time or int(time()) > revalidate_energy_boost_time:
-                        has_turbo_boost, has_energy_boost = await self.get_boosts_status(http_client=http_client)
                         try:
+                            has_turbo_boost, has_energy_boost = await self.get_boosts_status(http_client=http_client)
                             if has_turbo_boost:
                                 await self.apply_turbo(http_client=http_client)
                                 await self.update_current_energy(http_client=http_client)
@@ -280,10 +282,8 @@ class Tapper:
                         except Exception as error:
                             logger.error(f"{self.session_name} | Error while applying turbo boost: {error}")
                         finally:
-                            if not has_turbo_boost:
-                                revalidate_turbo_time = int(time() + 21600)
-                            if not has_energy_boost:
-                                revalidate_energy_boost_time = int(time() + 21600)
+                            revalidate_turbo_time = int(time() + 21600)
+                            revalidate_energy_boost_time = int(time() + 21600)
 
                     if current_energy < settings.MIN_AVAILABLE_ENERGY:
                         logger.info(f"{self.session_name} | Minimum energy reached: {current_energy}")
