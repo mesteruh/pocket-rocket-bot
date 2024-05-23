@@ -15,6 +15,11 @@ from bot.utils import logger
 from bot.exceptions import InvalidSession
 from .headers import headers
 
+yellow = "\x1b[33;20m"
+green = "\x1b[1;32m"
+blue = "\x1b[1;36m"
+reset = "\x1b[0m"
+
 
 class Tapper:
     def __init__(self, tg_client: Client):
@@ -77,8 +82,14 @@ class Tapper:
                                               json={"init_data": tg_web_data})
             response.raise_for_status()
             response_json = await response.json()
-            balance = response_json['user']['current_points']
-            logger.success(f"{self.session_name} | Success login | balance {balance}")
+            user = response_json['user']
+            balance = user['current_points']
+            total_claimed_points = user['total_claimed_points']
+
+            logger.success(f"{self.session_name} "
+                           f"| Success login "
+                           f"| Balance: {blue}{balance}{reset} "
+                           f"| Total claimed points: {blue}{total_claimed_points}{blue}")
 
             token = response_json['token']
             refresh_token = response_json['refresh_token']
@@ -110,8 +121,14 @@ class Tapper:
             response = await http_client.post(url='https://api-game.whitechain.io/api/claim-points',
                                               json={'points': points})
             response.raise_for_status()
+            response_json = await response.json()
+            current_energy = response_json['user']['current_energy']
+            balance = response_json['user']['current_points']
 
-            logger.success(f"{self.session_name} | Successful tapped +{points}")
+            logger.success(f"{self.session_name} "
+                           f"| Successful tapped "
+                           f"| Balance: {blue}{balance}{reset} ({green}+{points}{reset}) "
+                           f"| Energy: {blue}{current_energy}{reset}")
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error while claim points: {error}")
             await asyncio.sleep(delay=3)
@@ -122,8 +139,6 @@ class Tapper:
                 url='https://api-game.whitechain.io/api/apply-boost/fc5e40ed-c40b-4cfa-9a1a-9a16a5572d84')
             response.raise_for_status()
 
-            logger.success(f"{self.session_name} | Successful apply turbo")
-            await asyncio.sleep(delay=5)
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error while apply turbo: {error}")
             await asyncio.sleep(delay=3)
@@ -145,7 +160,7 @@ class Tapper:
                 url='https://api-game.whitechain.io/api/apply-boost/d212b229-3fb7-4900-a275-5ae0417e0164')
             response.raise_for_status()
 
-            logger.success(f"{self.session_name} | Successful apply recovery energy")
+            logger.success(f"{self.session_name} | Successful apply {green}recovery energy{reset}")
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error while recovery energy: {error}")
             await asyncio.sleep(delay=3)
@@ -164,28 +179,53 @@ class Tapper:
             logger.error(f"{self.session_name} | Unknown error while refreshing token: {error}")
             await asyncio.sleep(delay=3)
 
-    async def get_boosts_status(self, http_client: aiohttp.ClientSession):
+    async def get_turbo_status(self, http_client: aiohttp.ClientSession):
         try:
             response = await http_client.get(
                 url='https://api-game.whitechain.io/api/user-boosts-status')
             response.raise_for_status()
 
             response_json = await response.json()
-            turbo, energy = response_json['data']
+            turbo, _ = response_json['data']
             has_turbo_boost = turbo['charges_left'] > 0
-            has_energy_boost = energy['charges_left'] > 0
+            turbo_charges_left = turbo['charges_left']
+            turbo_next_available_at = turbo['next_available_at'] if turbo['next_available_at'] is not None else time() + 7200
 
             if has_turbo_boost:
-                logger.success(f"{self.session_name} | has {turbo['charges_left']} available turbo")
+                logger.success(f"{self.session_name} "
+                               f"| Has {green}{turbo['charges_left']}{reset} available {green}turbo{reset}")
             else:
-                logger.warning(f"{self.session_name} | no turbo boosts available")
+                logger.warning(
+                    f"{self.session_name} "
+                    f"| {yellow}No turbo{reset} boosts available. "
+                    f"| Left {yellow}{round((turbo_next_available_at - time()) / 60)} min{reset}.")
+
+            return has_turbo_boost, turbo_charges_left, turbo_next_available_at
+
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error while getting boosts status: {error}")
+            await asyncio.sleep(delay=3)
+
+    async def get_energy_status(self, http_client: aiohttp.ClientSession):
+        try:
+            response = await http_client.get(url='https://api-game.whitechain.io/api/user-boosts-status')
+            response.raise_for_status()
+
+            response_json = await response.json()
+            _, energy = response_json['data']
+            has_energy_boost = energy['charges_left'] > 0
+            energy_next_available_at = (
+                energy['next_available_at'] if energy['next_available_at'] is not None else time() + 7200)
 
             if has_energy_boost:
-                logger.success(f"{self.session_name} | has {energy['charges_left']} available energy boosts")
+                logger.success(f"{self.session_name} "
+                               f"| Has {green}{energy['charges_left']}{reset} available {green}energy{reset} boosts")
             else:
-                logger.warning(f"{self.session_name} | no energy boosts available")
+                logger.warning(f"{self.session_name} "
+                               f"| {yellow}No energy{reset} boosts available. "
+                               f"| Left {yellow}{round((energy_next_available_at - time()) / 60)} min{reset}.")
 
-            return has_turbo_boost, has_energy_boost
+            return has_energy_boost, energy_next_available_at
 
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error while getting boosts status: {error}")
@@ -193,13 +233,24 @@ class Tapper:
 
     async def update_current_energy(self, http_client: aiohttp.ClientSession):
         try:
-            response = await http_client.post(
-                url='https://api-game.whitechain.io/api/update-current-energy')
+            response = await http_client.post(url='https://api-game.whitechain.io/api/update-current-energy')
             response.raise_for_status()
             response_json = await response.json()
             return response_json['user']
         except Exception as error:
             logger.error(f"{self.session_name} | Unknown error while update current energy: {error}")
+            await asyncio.sleep(delay=3)
+
+    async def get_ship_improvements(self, http_client: aiohttp.ClientSession):
+        try:
+            response = await http_client.get(url='https://api-game.whitechain.io/api/user-current-improvements')
+            response.raise_for_status()
+            response_json = await response.json()
+
+            logger.error(f"{self.session_name} | get_ship_improvements {response_json}")
+
+        except Exception as error:
+            logger.error(f"{self.session_name} | Unknown error while getting ship improvements: {error}")
             await asyncio.sleep(delay=3)
 
     async def check_proxy(self, http_client: aiohttp.ClientSession, proxy: Proxy) -> None:
@@ -215,6 +266,7 @@ class Tapper:
         token_expired_time = 0
         refresh_token_time = 0
         revalidate_turbo_time = 0
+        revalidate_ship_improvements_time = 0
         revalidate_energy_boost_time = 0
         proxy_conn = ProxyConnector().from_url(proxy) if proxy else None
 
@@ -257,42 +309,77 @@ class Tapper:
                             min_value, max_value = settings.RANDOM_TAPS_COUNT
                             points = randint(a=min_value, b=max_value)
                             await self.send_taps(http_client=http_client, points=points)
-                            await asyncio.sleep(delay=2)
-                            resp = await self.update_current_energy(http_client=http_client)
                             await asyncio.sleep(delay=1)
-                            logger.info(f"{self.session_name} | Balance {resp['current_points']}")
+                            await self.update_current_energy(http_client=http_client)
                     except Exception as error:
                         logger.error(f"{self.session_name} | Unknown error {error}")
                         continue
 
-                    if int(time()) > revalidate_turbo_time or int(time()) > revalidate_energy_boost_time:
-                        try:
-                            has_turbo_boost, has_energy_boost = await self.get_boosts_status(http_client=http_client)
-                            if has_turbo_boost:
-                                await self.apply_turbo(http_client=http_client)
-                                await self.update_current_energy(http_client=http_client)
-                                await asyncio.sleep(delay=1)
-                                continue
+                    # if time() > revalidate_ship_improvements_time:
+                    #     try:
+                    #         await self.get_ship_improvements(http_client=http_client)
+                    #
+                    #     except Exception as error:
+                    #         logger.error(f"{self.session_name} | Error while getting ship improvements: {error}")
+                    #
+                    #     finally:
+                    #         revalidate_ship_improvements_time = time() + 60
+                    #         logger.info(f"{self.session_name} "
+                    #                     f"| Set {yellow}revalidate ship improvements{reset} time to "
+                    #                     f"{yellow}{round((time() + 60) / 60)} min{yellow}.")
 
-                            if has_energy_boost:
-                                await self.recovery_energy(http_client=http_client)
-                                await self.update_current_energy(http_client=http_client)
-                                await asyncio.sleep(delay=1)
+                    if time() > revalidate_turbo_time:
+                        try:
+                            has_turbo_boost, turbo_charges_left, turbo_next_available_at = await self.get_turbo_status(
+                                http_client=http_client)
+
+                            if has_turbo_boost:
+                                for x in range(turbo_charges_left):
+                                    await self.apply_turbo(http_client=http_client)
+                                    await asyncio.sleep(delay=2)
+                                    resp = await self.update_current_energy(http_client=http_client)
+                                    logger.success(f"{self.session_name} "
+                                                   f"| Successful apply {green}turbo ({1 + x}/{turbo_charges_left}){reset} "
+                                                   f"| Balance: {blue}{resp['current_points']}{reset} "
+                                                   f"| Sleep {sleep_between_clicks}s.")
+                                    await asyncio.sleep(delay=sleep_between_clicks)
 
                         except Exception as error:
                             logger.error(f"{self.session_name} | Error while applying turbo boost: {error}")
+
                         finally:
-                            revalidate_turbo_time = int(time() + 21600)
-                            revalidate_energy_boost_time = int(time() + 21600)
+                            revalidate_turbo_time = turbo_next_available_at
+                            logger.info(f"{self.session_name} "
+                                        f"| Set {yellow}revalidate turbo{reset} time to "
+                                        f"{yellow}{round((turbo_next_available_at - time()) / 60)} min{yellow}.")
 
                     if current_energy < settings.MIN_AVAILABLE_ENERGY:
-                        logger.info(f"{self.session_name} | Minimum energy reached: {current_energy}")
-                        logger.info(f"{self.session_name} | Sleep {settings.SLEEP_BY_MIN_ENERGY}s")
+                        if time() > revalidate_energy_boost_time:
+                            try:
+                                has_energy_boost, energy_next_available_at = await self.get_energy_status(
+                                    http_client=http_client)
 
-                        await asyncio.sleep(delay=settings.SLEEP_BY_MIN_ENERGY)
-                        continue
+                                if has_energy_boost:
+                                    await self.recovery_energy(http_client=http_client)
+                                    await self.update_current_energy(http_client=http_client)
+                                else:
+                                    revalidate_energy_boost_time = energy_next_available_at
+                                    logger.info(f"{self.session_name} "
+                                                f"| Set {yellow}revalidate energy{reset} boost time to "
+                                                f"{yellow}{round((energy_next_available_at - time()) / 60)} min{reset}.")
+                                    continue
 
-                    logger.info(f"Sleep {sleep_between_clicks}s")
+                            except Exception as error:
+                                logger.error(f"{self.session_name} | Error while applying energy boost: {error}")
+
+                        else:
+                            logger.info(f"{self.session_name} | Minimum energy reached: {current_energy}")
+                            logger.info(f"{self.session_name} | Sleep {settings.SLEEP_BY_MIN_ENERGY}s")
+
+                            await asyncio.sleep(delay=settings.SLEEP_BY_MIN_ENERGY)
+                            continue
+
+                    logger.info(f"{self.session_name} | Sleep {sleep_between_clicks}s")
                     await asyncio.sleep(delay=sleep_between_clicks)
 
 
