@@ -186,7 +186,7 @@ class Tapper:
             response.raise_for_status()
 
             response_json = await response.json()
-            turbo, _ = response_json['data']
+            turbo = response_json['data'][0]
             has_turbo_boost = turbo['charges_left'] > 0
             turbo_charges_left = turbo['charges_left']
             turbo_next_available_at = turbo['next_available_at'] if turbo['next_available_at'] is not None else time() + 7200
@@ -212,7 +212,7 @@ class Tapper:
             response.raise_for_status()
 
             response_json = await response.json()
-            _, energy = response_json['data']
+            energy = response_json['data'][1]
             has_energy_boost = energy['charges_left'] > 0
             energy_next_available_at = (
                 energy['next_available_at'] if energy['next_available_at'] is not None else time() + 7200)
